@@ -37,7 +37,24 @@ Node::Ptr HybirdRRTstar::Near(Node::Ptr n){
     }
     return minNode;
 }
+float HybirdRRTstar::getGC(Node::Ptr p,bool foundSolv){
+    if(foundSolv) return 0;
+    int count=0;
+    float minx=INT_MAX,miny=INT_MAX,maxx=-INT_MAX,maxy=-INT_MAX;
+    for (auto iter=sampledPointsWithFn.begin();iter!=sampledPointsWithFn.end();iter++) {
+        if(map->distance(p,iter->second)<2*stepsize_){
+            count++;
+            maxx=iter->second->pw[0]>maxx?iter->second->pw[0]:maxx;
+            maxy=iter->second->pw[1]>maxy?iter->second->pw[1]:maxy;
+            minx=iter->second->pw[0]<minx?iter->second->pw[0]:minx;
+            miny=iter->second->pw[0]<miny?iter->second->pw[1]:miny;
+        }
+    }
+    float area=(maxx-minx)*(maxy-miny);
+    if(count*(stepsize_*stepsize_)/area<=2) return -stepsize_;
+    return 4*count/area*stepsize_;
 
+}
 bool HybirdRRTstar::Steer(Node::Ptr n1,Node::Ptr n2,Node::Ptr &xnew){
     double costh=abs((n1->pw[0]-n2->pw[0]))/sqrt(pow(n1->pw[1]-n2->pw[1],2)+pow(n1->pw[0]-n2->pw[0],2));
     double sinth=sqrt(1-pow(costh,2));
@@ -112,7 +129,7 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
             if(map->ValidConnect(xrand,startNode)){
                 xrand->Parent=startNode;
                 xrand->gn=map->distance(xrand,startNode);
-                sampledPointsWithFn.insert(make_pair(xrand->gn+map->distance(xrand,goalNode),xrand));
+                sampledPointsWithFn.insert(make_pair(xrand->gn+map->distance(xrand,goalNode)+getGC(xrand,foundSolution),xrand));
                 sampleTree.push_back(make_pair(xrand,startNode));
                 init=true;
                 break;
@@ -190,7 +207,7 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
             if(map->ValidConnect(minNode,xnew)){
                 xnew->Parent=minNode;
                 xnew->gn=minNode->gn+map->distance(minNode,xnew);
-                sampledPointsWithFn.insert(make_pair(xnew->gn+map->distance(xnew,goalNode),xnew));
+                sampledPointsWithFn.insert(make_pair(xnew->gn+map->distance(xnew,goalNode)+getGC(xnew,foundSolution),xnew));
                 sampleTree.push_back(make_pair(xnew,minNode));
             } else continue;
 
@@ -208,11 +225,11 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
                                 nearGoal->Parent=xnew;
                                 nearGoal->gn=xnew->gn+map->distance(xnew,nearGoal);
                                 //sampledPoints.push_back(nearGoal);
-                                sampledPointsWithFn.insert(make_pair(nearGoal->gn+map->distance(nearGoal,goalNode),nearGoal));
+                                sampledPointsWithFn.insert(make_pair(nearGoal->gn+map->distance(nearGoal,goalNode)+getGC(nearGoal,foundSolution),nearGoal));
 
                                 goalNode->Parent=nearGoal;
                                 goalNode->gn=nearGoal->gn+map->distance(nearGoal,goalNode);
-                                sampledPointsWithFn.insert(make_pair(goalNode->gn,goalNode)); //TODO
+                                sampledPointsWithFn.insert(make_pair(goalNode->gn+getGC(goalNode,foundSolution),goalNode)); //TODO
                                 sampleTree.push_back(make_pair(nearGoal,goalNode));
 
                                 //show path

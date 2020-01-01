@@ -37,24 +37,74 @@ Node::Ptr HybirdRRTstar::Near(Node::Ptr n){
     }
     return minNode;
 }
-float HybirdRRTstar::getGC(Node::Ptr p,bool foundSolv){
-    if(foundSolv) return 0;
+float HybirdRRTstar::getHeuristic( Node::Ptr p) {
     int count=0;
-    float minx=INT_MAX,miny=INT_MAX,maxx=-INT_MAX,maxy=-INT_MAX;
+    vector<multimap<float,Node::Ptr>::iterator> fliterset;
     for (auto iter=sampledPointsWithFn.begin();iter!=sampledPointsWithFn.end();iter++) {
-        if(map->distance(p,iter->second)<2*stepsize_){
+        if(map->distance(p,iter->second)<20*stepsize_){
             count++;
-            maxx=iter->second->pw[0]>maxx?iter->second->pw[0]:maxx;
-            maxy=iter->second->pw[1]>maxy?iter->second->pw[1]:maxy;
-            minx=iter->second->pw[0]<minx?iter->second->pw[0]:minx;
-            miny=iter->second->pw[0]<miny?iter->second->pw[1]:miny;
+            if(count>5){
+                fliterset.push_back(iter);
+            }
+
         }
     }
-    float area=(maxx-minx)*(maxy-miny);
-    if(count*(stepsize_*stepsize_)/area<=2) return -stepsize_;
-    return 4*count/area*stepsize_;
-
+    //remove the node that has high density
+    for (int j = 0; j <fliterset.size() ; ++j) {
+        fliterset[j]->second->Visted=true;
+    }
+    float penalty=exp(exp(count))*stepsize_;
+    float dis=map->distance(p,goalNode);
+    if(count<=5) return p->gn+dis;
+    else return p->gn+penalty+dis;
 }
+Node::Ptr HybirdRRTstar::sampleWithLowDensity(Node::Ptr curr, Node::Ptr goal, float length) {
+    std::uniform_real_distribution<double> dist {0, 2 * M_PI};
+    std::random_device rd;
+    std::default_random_engine rng {rd()};
+    std::uniform_real_distribution<double> distribution {-1.0, 1.0};
+
+    float c = map->distance(curr, goal) / 2.0;
+    float a = length / 2.0;
+    float b = sqrt(a * a - c * c);
+    float x0 = (curr->pw[0] + goal->pw[0]) / 2.0;
+    float y0 = (curr->pw[1] + goal->pw[1]) / 2.0;
+    float rot = atan((curr->pw[1] - goal->pw[1]) / (curr->pw[0] - goal->pw[0]));
+    Eigen::Matrix3f R = Eigen::AngleAxisf(rot, Eigen::Vector3f::UnitZ()).toRotationMatrix();
+    vector<Node::Ptr> randset;
+    for (int j = 0; j < 10; ++j) {
+        float alpha = distribution(rng);
+        float theta = dist(rng);
+        float x = a * cos(theta) * alpha;
+        float y = b * sin(theta) * alpha;
+        Vector3f ell = R * Vector3f(x, y, 0) + Vector3f(x0, y0, 0);
+        if (map->isValid(ell.x(), ell.y()))
+            randset.push_back(make_shared<Node>(Vector2f(ell.x(),ell.y())));
+    }
+    float minx=INT_MAX,miny=INT_MAX,maxx=-INT_MAX,maxy=-INT_MAX;
+    int countMin=INT_MAX;
+    float lengthMin=INT_MAX;
+    Node::Ptr nodeMin;
+    for (int k = 0; k <randset.size() ; ++k) {
+        int count=0;
+        for (auto iter=sampledPointsWithFn.begin();iter!=sampledPointsWithFn.end();iter++) {
+            if(map->distance(randset[k],iter->second)<6*stepsize_){
+                count++;
+                maxx=iter->second->pw[0]>maxx?iter->second->pw[0]:maxx;
+                maxy=iter->second->pw[1]>maxy?iter->second->pw[1]:maxy;
+                minx=iter->second->pw[0]<minx?iter->second->pw[0]:minx;
+                miny=iter->second->pw[0]<miny?iter->second->pw[1]:miny;
+            }
+        }
+        if(count<countMin){
+            countMin=count;
+            nodeMin=randset[k];
+        }
+
+    }
+    return nodeMin;
+}
+
 bool HybirdRRTstar::Steer(Node::Ptr n1,Node::Ptr n2,Node::Ptr &xnew){
     double costh=abs((n1->pw[0]-n2->pw[0]))/sqrt(pow(n1->pw[1]-n2->pw[1],2)+pow(n1->pw[0]-n2->pw[0],2));
     double sinth=sqrt(1-pow(costh,2));
@@ -106,6 +156,7 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
     auto OptSolved=start;
 
     bool foundSolution=false;
+    bool globalOptimization=false;
     float lastAverage=0;
     float currenAverage=INT_MAX;//path length in average
     int N=1;
@@ -116,20 +167,35 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
     sampledPointsWithFn.clear();
     sampledPointsWithFn.insert(make_pair(map->distance(startNode,goalNode),startNode));
 
-
     Node::Ptr xrand;
     //init the tree,put start node and a vaild child in the tree
     while(1){
         auto xrandSet=map->ellipse_sample_star(startNode,goalNode,stepsize_);
-        //cout<<xrandSet.size()<<endl;
-        //vis_Xrand(xrandSet,map,ellipse_pub);
         bool init=false;
         for (auto iter=xrandSet.begin();iter!=xrandSet.end();iter++) {
             xrand=iter->second;
+            //target may lies directly on a collision free line from start,this is the shorest path without optimization
+            if(xrand==goalNode){
+                //naive operation
+                {
+                    vector<Vector2f> path;
+                    path.push_back(Vector2f(goalNode->pw[0],goalNode->pw[1]));
+                    path.push_back(Vector2f(startNode->pw[0],startNode->pw[1]));
+                    vis_path(path,path_pub);
+                    auto find_duration = chrono::duration_cast<chrono::microseconds>(findSolutionTime - start);
+                    cout <<  "Hybird RRT* cost "
+                         << double(find_duration.count()) * chrono::microseconds::period::num / chrono::microseconds::period::den
+                         << "second to find a valiable path " << endl;
+                    cout <<  "Hybird RRT* cost 0 second to optimaze a path " << endl;
+                    cout<<"the shortest path is "<<map->distance(startNode,goalNode)<<" m "<<endl;
+                }
+                return true;
+            }
+            //if xrand can be connected with start,the tree is inited
             if(map->ValidConnect(xrand,startNode)){
                 xrand->Parent=startNode;
                 xrand->gn=map->distance(xrand,startNode);
-                sampledPointsWithFn.insert(make_pair(xrand->gn+map->distance(xrand,goalNode)+getGC(xrand,foundSolution),xrand));
+                sampledPointsWithFn.insert(make_pair(getHeuristic(xrand),xrand));
                 sampleTree.push_back(make_pair(xrand,startNode));
                 init=true;
                 break;
@@ -137,86 +203,99 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
         }
         if(init) break;
     }
-
+// we use j to count iteration
     int j=0;
     while(j<iter_max){
-        //for the first time ,xrand exist
-
-        Node::Ptr Xbest;
-        for (auto iter=sampledPointsWithFn.begin();iter!=sampledPointsWithFn.end();iter++) {
-            if(!iter->second->Visted){
-                Xbest=iter->second;
-                break;
+        if(!foundSolution){
+            //choose unvisited node of minimum heuristic cost in sample points to grow the tree
+            //this Xbest should be:
+            //1.has not been visted
+            //2.it has a small density(the number of neighbors)
+            //3.it is closer to goal point
+            Node::Ptr Xbest;
+            int spSize=0;
+            for (auto iter=sampledPointsWithFn.begin();iter!=sampledPointsWithFn.end();iter++) {
+                if(!iter->second->Visted){
+                    Xbest=iter->second;
+                    spSize++;
+                    break;
+                }
             }
-        }
-        if(Xbest== nullptr) continue;
-        auto XrandSet=map->ellipse_sample_star(Xbest,goalNode,stepsize_);
-        Xbest->Visted=true;
+            //sample points are all invalid,we choose a visted but low cost node
+            if(spSize==sampledPointsWithFn.size()){
+                Xbest=sampledPointsWithFn.begin()->second;
+            }
+            if(Xbest== nullptr) continue;
+            //use Xbest to sample,then Xbest would never to be used to sample/grow
+            auto XrandSet=map->ellipse_sample_star(Xbest,goalNode,stepsize_);
+            Xbest->Visted=true;
 
-        while(XrandSet.size()!=0){
-            if(j!=0 && !foundSolution){
+            while(XrandSet.size()!=0 &&!foundSolution){
+                //for the first time ,xrand exist
                 xrand=XrandSet.begin()->second;
                 XrandSet.erase(XrandSet.begin());
-                if(xrand== nullptr) continue;
-            }
-            else if(foundSolution){
-                int NodeInPathSize=pathNode.size();
-                //sample from goal to start
-                Node::Ptr KstartNode=pathNode[N];
-                if(times>(2*N) && N<NodeInPathSize-1){
-                    KstartNode=pathNode[N];
-                    N++;
-                    times=0;
-                } else if(N==(NodeInPathSize-1)){
-                    KstartNode=startNode;
-                    //cout<<"Run Global Optimization"<<endl;
-                }
-                if(!KstartNode) continue;
-                float Klength=0;
-                if(KstartNode!=startNode){
-                    Node::Ptr temp=goalNode->Parent;
-                    Klength+=map->distance(temp,goalNode);
-                    while(temp!= KstartNode && temp!= nullptr){
-                        if(temp->Parent)Klength+=map->distance(temp,temp->Parent);
-                        temp=temp->Parent;
+                //we get the shortes path from xbest
+                if(xrand==goalNode){
+                    goalNode->Parent=Xbest;
+                    goalNode->gn=Xbest->gn+map->distance(Xbest,goalNode);
+                    sampledPointsWithFn.insert(make_pair(getHeuristic(Xbest),goalNode));
+                    sampleTree.push_back(make_pair(Xbest,goalNode));
+                    {
+                        vector<Vector2f> path;
+                        path.push_back(Vector2f(goalNode->pw[0],goalNode->pw[1]));
+                        Node::Ptr temp=goalNode->Parent;
+                        lastAverage+=map->distance(temp,goalNode);
+                        pathNode.push_back(goalNode);
+                        while(temp!= nullptr){
+                            if(temp->Parent)lastAverage+=map->distance(temp,temp->Parent);
+                            pathNode.push_back(temp);
+                            length.push_back(lastAverage);
+                            path.push_back(Vector2f(temp->pw[0],temp->pw[1]));
+                            temp=temp->Parent;
+                        }
+                        vis_path(path,path_pub);
                     }
-                } else{
-                    Klength=lastAverage;
-                }
-                xrand=map->ellipse_sample(KstartNode,goalNode,Klength);
-                vis_ellipse(KstartNode,goalNode,map->distance(KstartNode,goalNode),Klength,ellipse_pub);
-                if(!xrand) continue;
-            }
-            shared_ptr<Node> xnear=Near(xrand);
-            if(xnear== nullptr) continue;
-            shared_ptr<Node> xnew;
-            if(!Steer(xrand,xnear,xnew)) continue;
 
-            auto nearestK=getNearestR(xnew,2*stepsize_);
-            if(nearestK.empty())continue;
-            Node::Ptr minNode;
-            float minGn=INT_MAX;
-            for (auto iter=nearestK.begin();iter!=nearestK.end();iter++) {
-                float dis=iter->second->gn+map->distance(iter->second,xnew);
-                if(dis<minGn){
-                    minGn=dis;
-                    minNode=iter->second;
-                }
-            }
-            //new add
-            if(map->ValidConnect(minNode,xnew)){
-                xnew->Parent=minNode;
-                xnew->gn=minNode->gn+map->distance(minNode,xnew);
-                sampledPointsWithFn.insert(make_pair(xnew->gn+map->distance(xnew,goalNode)+getGC(xnew,foundSolution),xnew));
-                sampleTree.push_back(make_pair(xnew,minNode));
-            } else continue;
+                    foundSolution= true;
 
-            if(foundSolution){
-                Rewire(xnew,nearestK);
-            }
-            j++;
-            if(!foundSolution){
-                if(map->distance(xnew,goalNode)<4*stepsize_){
+                    cout<<"Hybird RRT* sovled "<<j<<" times to find a path,staring local optimization"<<endl;
+                    findSolutionTime=chrono::steady_clock::now();
+                    break;
+                }
+                if(xrand== nullptr) continue;
+
+                shared_ptr<Node> xnear=Near(xrand);
+                if(xnear== nullptr) continue;
+                shared_ptr<Node> xnew;
+                if(!Steer(xrand,xnear,xnew)) continue;
+
+                //find nodes that near xnew
+                auto nearestK=getNearestR(xnew,2*stepsize_);
+                if(nearestK.empty())continue;
+
+                //find a node that has minimum cost grow to xnew
+                Node::Ptr minNode;
+                float minGn=INT_MAX;
+                for (auto iter=nearestK.begin();iter!=nearestK.end();iter++) {
+                    float dis=iter->second->gn+map->distance(iter->second,xnew);
+                    if(dis<minGn){
+                        minGn=dis;
+                        minNode=iter->second;
+                    }
+                }
+                //if minNode is valid connection with xnew,add it to the tree
+                if(map->ValidConnect(minNode,xnew)){
+                    xnew->Parent=minNode;
+                    xnew->gn=minNode->gn+map->distance(minNode,xnew);
+                    sampledPointsWithFn.insert(make_pair(getHeuristic(xnew),xnew));
+                    sampleTree.push_back(make_pair(xnew,minNode));
+                } else continue;
+
+                //if we cannot get goal node by the sample method,we do this by short distance
+                //this may happen in a full of obsatcle case
+                if(map->distance(xnew,goalNode)<4*stepsize_ &&!foundSolution){
+                    //we try to iterate 30 times to generate a point that connect both xnew and goal without collision
+                    //if we dont find contine;
                     int iterMax=30;
                     while(iterMax){
                         auto nearGoal=map->uniform_sample_area(xnew->pw[0],xnew->pw[1],4*stepsize_,80);
@@ -224,12 +303,11 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
                             if(map->distance(nearGoal,goalNode)<2*stepsize_){
                                 nearGoal->Parent=xnew;
                                 nearGoal->gn=xnew->gn+map->distance(xnew,nearGoal);
-                                //sampledPoints.push_back(nearGoal);
-                                sampledPointsWithFn.insert(make_pair(nearGoal->gn+map->distance(nearGoal,goalNode)+getGC(nearGoal,foundSolution),nearGoal));
+                                sampledPointsWithFn.insert(make_pair(getHeuristic(nearGoal),nearGoal));
 
                                 goalNode->Parent=nearGoal;
                                 goalNode->gn=nearGoal->gn+map->distance(nearGoal,goalNode);
-                                sampledPointsWithFn.insert(make_pair(goalNode->gn+getGC(goalNode,foundSolution),goalNode)); //TODO
+                                sampledPointsWithFn.insert(make_pair(goalNode->gn,goalNode)); //TODO
                                 sampleTree.push_back(make_pair(nearGoal,goalNode));
 
                                 //show path
@@ -251,20 +329,93 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
                                 }
 
                                 foundSolution= true;
-
-                                //cout<<"Infromed RRT* sovled "<<j<<" times to find a path,staring local optimization"<<endl;
+                                //cout<<"Hybrid  RRT* sovled "<<j<<" times to find a path,staring local optimization"<<endl;
                                 findSolutionTime=chrono::steady_clock::now();
                                 break;
                             }
-                            j++;
-
                         }
                         iterMax--;
                     }
+                }
 
+                Rewire(xnew,nearestK);
+                j++;
+                //Vis_sample(sampledPoints,sample_point_pub);
+                Vis_sample_tree(sampleTree,sampletreePub);
+            }
+        }
+        else if(foundSolution){
+            //pathNode [goal x x x x x start]
+            int NodeInPathSize = pathNode.size();
+            //sample from goal to start
+            //N start from 1,the latter node by goal
+            Node::Ptr KstartNode = pathNode[N];
+            if (!KstartNode) continue;
+            float Klength = 0;
+            //if KstartNode is not goal,we need to calculate path length
+            if (KstartNode != startNode) {
+                Node::Ptr temp = goalNode -> Parent;
+                Klength += map -> distance(temp, goalNode);
+                while (temp != KstartNode && temp != nullptr) {
+                    if (temp -> Parent)Klength += map -> distance(temp, temp -> Parent);
+                    temp = temp -> Parent;
+                }
+            } else {
+                Klength = lastAverage;
+            }
+            //if path length is too short,enlarge the ellipse
+            if(Klength<5*stepsize_){
+                N++;
+                continue;
+            }
+            //KstartNode would optimize abs(X-lengthStep) times,
+            // that is if KstartNode is closer to goal
+            //the less would KstartNode optimize
+            if (times > abs((lastAverage/stepsize_-(Klength/stepsize_))) && N < NodeInPathSize - 1) {
+                N++;
+                times = 0;
+            } else if (N == (NodeInPathSize - 1)) {
+                KstartNode = startNode;
+                globalOptimization= true;
+                //cout<<"Run Global Optimization"<<endl;
+            }
+
+            //we use informed rrt* sample method,what differs is that we change the ellipse from goal to start until start
+            xrand = sampleWithLowDensity(KstartNode, goalNode, Klength);
+            if (!xrand) continue;
+            vis_ellipse(KstartNode, goalNode, map -> distance(KstartNode, goalNode), Klength, ellipse_pub);
+            //same as above
+            shared_ptr<Node> xnear=Near(xrand);
+            if(xnear== nullptr) continue;
+            shared_ptr<Node> xnew;
+            if(!Steer(xrand,xnear,xnew)) continue;
+
+            auto nearestK=getNearestR(xnew,2*stepsize_);
+            if(nearestK.empty())continue;
+
+            Node::Ptr minNode;
+            float minGn=INT_MAX;
+            for (auto iter=nearestK.begin();iter!=nearestK.end();iter++) {
+                float dis=iter->second->gn+map->distance(iter->second,xnew);
+                if(dis<minGn){
+                    minGn=dis;
+                    minNode=iter->second;
                 }
             }
-            if(foundSolution){
+            //if minNode is valid connection with xnew,add it to the tree
+            if(map->ValidConnect(minNode,xnew)){
+                xnew->Parent=minNode;
+                xnew->gn=minNode->gn+map->distance(minNode,xnew);
+                sampledPointsWithFn.insert(make_pair(getHeuristic(xnew),xnew));
+                sampleTree.push_back(make_pair(xnew,minNode));
+            } else continue;
+
+            Rewire(xnew,nearestK);
+            j++;
+
+            Vis_sample_tree(sampleTree,sampletreePub);
+            //vis path
+            {
                 pathNode.clear();
                 vector<Vector2f> path;
                 path.push_back(Vector2f(goalNode->pw[0],goalNode->pw[1]));
@@ -278,14 +429,13 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
                     path.push_back(Vector2f(temp->pw[0],temp->pw[1]));
                     temp=temp->Parent;
                 }
-
                 length.push_back(pathLength);
                 vis_path(path,path_pub);
 
             }
 
 
-            if(foundSolution && length.size()>3){
+            if(length.size()>3){
                 currenAverage=0;
                 for (auto iter=length.end()-1;iter!=length.end()-4;iter--) {
                     currenAverage+=(*iter);
@@ -298,27 +448,27 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
                 lastAverage=currenAverage;
             }
 
-            if(times>300){
+            if(times>300 && globalOptimization){
                 cout<<"optimization done!"<<endl;
                 OptSolved=chrono::steady_clock::now();
                 auto find_duration = chrono::duration_cast<chrono::microseconds>(findSolutionTime - start);
                 auto opt_duration=chrono::duration_cast<chrono::microseconds>(OptSolved - findSolutionTime);
-                cout <<  "InformedRRT* cost "
+                cout <<  "Hybird RRT* cost "
                      << double(find_duration.count()) * chrono::microseconds::period::num / chrono::microseconds::period::den
                      << "second to find a valiable path " << endl;
-                cout <<  "InformedRRT* cost "
+                cout <<  "Hybird RRT* cost "
                      << double(opt_duration.count()) * chrono::microseconds::period::num / chrono::microseconds::period::den
                      << "second to optimaze a path " << endl;
                 cout<<"the shortest path is "<<length[length.size()-1]<<" m "<<endl;
                 return true;
             }
 
-            //Vis_sample(sampledPoints,sample_point_pub);
-            Vis_sample_tree(sampleTree,sampletreePub);
         }
 
     }
     cout<<"RRT couldnt find a path "<<endl;
     return false;
 }
+
+
 

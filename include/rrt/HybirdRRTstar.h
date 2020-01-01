@@ -26,7 +26,8 @@ public:
     void setMap(OccMap *occMap);
     bool isInitilized();
     Node::Ptr Near(Node::Ptr n);
-    float getGC(Node::Ptr p,bool foundSolv);
+    float getHeuristic(Node::Ptr);
+    Node::Ptr sampleWithLowDensity(Node::Ptr curr,Node::Ptr goal,float length);
     //return the nearest k neighbor and their distance
     multimap<float,Node::Ptr> getNearestR(Node::Ptr cur,float radius);
     bool Steer(Node::Ptr n1,Node::Ptr n2,Node::Ptr &xnew);

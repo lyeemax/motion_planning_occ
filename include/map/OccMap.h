@@ -42,7 +42,8 @@ struct Node{
     bool isObstacle;
     bool Visted;
     float gc;//growth cost
-    Node(Vector2f p,bool isObs= true,int ix=-1,int iy=-1,float g=0){
+    bool ToBeGoal;
+    Node(Vector2f p,bool isObs= true,int ix=-1,int iy=-1,float g=0,bool tobegoal= false){
         pw=p;
         Parent= nullptr;
         gn=INT_MAX;
@@ -51,6 +52,7 @@ struct Node{
         y=iy;
         Visted= false;
         gc=g;
+        ToBeGoal=tobegoal;
     }
 };
 

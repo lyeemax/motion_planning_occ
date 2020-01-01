@@ -207,30 +207,27 @@ Node::Ptr OccMap::ellipse_sample(Node::Ptr n1,Node::Ptr n2,float pathlength){
     std::uniform_real_distribution<double > dist{0,2*M_PI};
     std::random_device rd;
     std::default_random_engine rng {rd()};
-    float theta=dist(rng);
-
     std::uniform_real_distribution<double > distribution{-1.0,1.0};
-    float alpha=distribution(rng);
 
     float c=distance(n1,n2)/2.0;
     float a=pathlength/2.0;
     float b=sqrt(a*a-c*c);
     float x0=(n1->pw[0]+n2->pw[0])/2.0;
     float y0=(n1->pw[1]+n2->pw[1])/2.0;
-
     float rot=atan((n1->pw[1]-n2->pw[1])/(n1->pw[0]-n2->pw[0]));
     Eigen::Matrix3f R=Eigen::AngleAxisf(rot,Eigen::Vector3f::UnitZ()).toRotationMatrix();
-
-    float x=a*cos(theta)*alpha;
-    float y=b*sin(theta)*alpha;
-    Vector3f ell=R*Vector3f(x,y,0)+Vector3f(x0,y0,0);
-    if(isValid(ell.x(),ell.y()))
-        return make_shared<Node>(Vector2f(ell.x(),ell.y()));
-    else
-        return nullptr;
-
+    for (int j = 0; j <20 ; ++j) {
+        float alpha=distribution(rng);
+        float theta=dist(rng);
+        float x=a*cos(theta)*alpha;
+        float y=b*sin(theta)*alpha;
+        Vector3f ell=R*Vector3f(x,y,0)+Vector3f(x0,y0,0);
+        if(isValid(ell.x(),ell.y()))
+            return make_shared<Node>(Vector2f(ell.x(),ell.y()));
+    }
+    return nullptr;
 }
-
+//sample a line toward goal(may not link the whole path but most collision free) and at most 10 rand point in the ellipse of goal and start
 multimap<float,Node::Ptr> OccMap::ellipse_sample_star(Node::Ptr curr,Node::Ptr goal,float min_step){
     multimap<float,Node::Ptr> OpenSet;
     float c=distance(curr,goal)/2.0;
@@ -247,7 +244,7 @@ multimap<float,Node::Ptr> OccMap::ellipse_sample_star(Node::Ptr curr,Node::Ptr g
     float y0=(curr->pw[1]+goal->pw[1])/2.0;
 
     //sample in a ellipse
-    for (int j = 0; j <100 ; ++j) {
+    for (int j = 0; j <500 ; ++j) {
         float theta=dist(rng);
         float alpha=distribution(rng);
         float x=a*cos(theta)*alpha;
@@ -258,13 +255,13 @@ multimap<float,Node::Ptr> OccMap::ellipse_sample_star(Node::Ptr curr,Node::Ptr g
         auto node=make_shared<Node>(Vector2f(ell.x(),ell.y()));
         if(!isValid(ell.x(),ell.y())) continue;
         OpenSet.insert(make_pair(curr->gn+dis,node));
-        if(OpenSet.size()>10) break;
+        if(OpenSet.size()>50) break;
     }
 
 //choose a best node toward goal
     Node::Ptr bestNode;
     if(ValidConnect(curr,goal,bestNode)){
-        float dis=distance(curr,bestNode)+distance(bestNode,goal);
+        float dis=distance(curr,bestNode)+((bestNode==goal)?-curr->gn:distance(bestNode,goal));
         OpenSet.insert(make_pair(curr->gn+dis,bestNode));
     }
     return OpenSet;

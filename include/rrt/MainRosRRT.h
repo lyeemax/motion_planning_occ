@@ -19,6 +19,7 @@
 #include "rrt/RRT.h"
 #include "rrt/InformedRRTstar.h"
 #include "rrt/HybirdRRTstar.h"
+#include "rrt/HybirdRRTstarKdtree.h"
 #include "rrt/RRTstar.h"
 #include "tools/Viewer.h"
 using  namespace std;
@@ -34,7 +35,7 @@ public:
     RRT *rrt;
     RRTstar *rrtstar;
     InformedRRTstar *informedrrt;
-    HybirdRRTstar *hybirdrrt;
+    HybirdRRTstarKdtree *hybirdrrt;
 
     vector<Vector2f> testGoals;
 

@@ -12,9 +12,10 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 find_package(Eigen3 )
+find_package(PCL)
 
 include_directories(${EIGEN3_INCLUDE_DIRS})
-
+include_directories(${PCL_INCLUDE_DIRS})
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
 
@@ -136,7 +137,7 @@ include_directories(
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
 
-add_library(motion_planning_rrt src/map/OccMap.cpp src/rrt/RRT.cpp src/rrt/MainRosRRT.cpp src/rrt/RRTstar.cpp src/rrt/InformedRRTstar.cpp src/rrt/HybirdRRTstar.cpp src/tools/Viewer.cpp )
+add_library(motion_planning_rrt src/map/OccMap.cpp src/rrt/RRT.cpp src/rrt/MainRosRRT.cpp src/rrt/RRTstar.cpp src/rrt/InformedRRTstar.cpp src/rrt/HybirdRRTstar.cpp src/tools/Viewer.cpp src/rrt/HybirdRRTstarKdtree.cpp)
 add_executable(rrt src/rrt/Main.cpp)
 
 
@@ -157,6 +158,7 @@ add_executable(astar src/astar/Main.cpp)
  target_link_libraries(rrt
    ${catkin_LIBRARIES}
          motion_planning_rrt
+         ${PCL_LIBRARIES}
  )
 
 

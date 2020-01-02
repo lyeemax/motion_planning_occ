@@ -180,6 +180,7 @@ extern void vis_Xrand(multimap<float,Node::Ptr> coverlist,OccMap *occmap,ros::Pu
         CoverPoints.points.push_back(cpoint);
     }
     cover_pub.publish(CoverPoints);
+    cout<<"test"<<endl;
 
 }
 

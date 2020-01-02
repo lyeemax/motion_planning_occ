@@ -18,8 +18,8 @@ MainRosRRT::MainRosRRT(int argc,char ** argv,RRTMethod meth){
         informedrrt->setStepSize(1.0);
         method=INFORMED_RRT_STAR_M;
     } else if(meth==HYBIRD_RRT_STAR_M){
-        hybirdrrt=new HybirdRRTstar;
-        hybirdrrt->setStepSize(1.0);
+        hybirdrrt=new HybirdRRTstarKdtree;
+        hybirdrrt->setStepSize(0.5);
         method=HYBIRD_RRT_STAR_M;
     }
     occmap=new OccMap(0.05,0.2);

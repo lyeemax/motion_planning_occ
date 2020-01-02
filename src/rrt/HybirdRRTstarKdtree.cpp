@@ -64,7 +64,7 @@ float HybirdRRTstarKdtree::getHeuristic( Node::Ptr p) {
     for (int j = 0; j <fliterset.size() ; ++j) {
         fliterset[j]->second->Visted=true;
     }
-    float penalty=pow(count,5)*stepsize_;
+    float penalty=5*pow(count,5)*stepsize_;
     float dis=map->distance(p,goalNode);
     float compensate=-(p->gn)/5.0;
     if(count<=2) return p->gn+dis+compensate;
@@ -452,14 +452,14 @@ bool HybirdRRTstarKdtree::solve(int iter_max,ros::Publisher sampletreePub,ros::P
                 Klength = lastAverage;
             }
             //if path length is too short,enlarge the ellipse
-            if(Klength<5*stepsize_){
+            if(Klength<3*stepsize_){
                 N++;
                 continue;
             }
             //KstartNode would optimize abs(X-lengthStep) times,
             // that is if KstartNode is closer to goal
             //the less would KstartNode optimize
-            if (times > abs((lastAverage/stepsize_-(Klength/stepsize_))) && N < NodeInPathSize - 1) {
+            if (times > abs((lastAverage/2*stepsize_-(Klength/2*stepsize_))) && N < NodeInPathSize - 1) {
                 N++;
                 times = 0;
             } else if (N == (NodeInPathSize - 1)) {
@@ -494,8 +494,6 @@ bool HybirdRRTstarKdtree::solve(int iter_max,ros::Publisher sampletreePub,ros::P
             if(map->ValidConnect(minNode,xnew)){
                 xnew->Parent=minNode;
                 xnew->gn=minNode->gn+map->distance(minNode,xnew);
-
-
 
                 //we must carefully arrange their relationship
                 iter=sampledPointsWithFn.insert(make_pair(getHeuristic(xnew),xnew));

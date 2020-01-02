@@ -360,17 +360,17 @@ bool HybirdRRTstar::solve(int iter_max,ros::Publisher sampletreePub,ros::Publish
                 Klength = lastAverage;
             }
             //if path length is too short,enlarge the ellipse
-            if(Klength<5*stepsize_){
-                N++;
+            if(Klength<2*stepsize_){
+                N+=2;
                 continue;
             }
             //KstartNode would optimize abs(X-lengthStep) times,
             // that is if KstartNode is closer to goal
             //the less would KstartNode optimize
             if (times > abs((lastAverage/stepsize_-(Klength/stepsize_))) && N < NodeInPathSize - 1) {
-                N++;
+                N+=2;
                 times = 0;
-            } else if (N == (NodeInPathSize - 1)) {
+            } else if (N >= (NodeInPathSize - 1)) {
                 KstartNode = startNode;
                 globalOptimization= true;
                 //cout<<"Run Global Optimization"<<endl;

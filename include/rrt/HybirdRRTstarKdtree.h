@@ -40,6 +40,7 @@ public:
     Node::Ptr Near(Node::Ptr n);
     float getHeuristic(Node::Ptr);
     Node::Ptr sampleWithLowDensity(Node::Ptr curr,Node::Ptr goal,float length);
+    multimap<float,Node::Ptr> ellipse_sample_star(Node::Ptr curr,Node::Ptr goal,float min_step);
     //return the nearest k neighbor and their distance
     multimap<float,Node::Ptr> getNearestR(Node::Ptr cur,float radius);
     bool Steer(Node::Ptr n1,Node::Ptr n2,Node::Ptr &xnew);

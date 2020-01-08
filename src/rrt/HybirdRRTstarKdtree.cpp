@@ -36,7 +36,10 @@ Node::Ptr HybirdRRTstarKdtree::Near(Node::Ptr n){
     std::vector<int> pointIdxNKNSearch(K);
     std::vector<float> pointNKNSquaredDistance(K);
     if(kdtree.nearestKSearch (point, K, pointIdxNKNSearch, pointNKNSquaredDistance)>0){
-        return searchChart[pointIdxNKNSearch[0]]->second;
+        //make tree grow more fast
+        int idx=0;
+        while(pointNKNSquaredDistance[idx]<0.1 && idx<pointNKNSquaredDistance.size()-1)idx++;
+        return searchChart[pointIdxNKNSearch[idx]]->second;
     } else return nullptr;
 
 
@@ -54,22 +57,106 @@ float HybirdRRTstarKdtree::getHeuristic( Node::Ptr p) {
     if ( kdtree.radiusSearch (point, radius, pointIdxRadiusSearch, pointRadiusSquaredDistance) > 0 ){
         for (int j = 0; j <pointIdxRadiusSearch.size() ; ++j) {
             count++;
-            if(count>2){
+            if(count>3){
                 fliterset.push_back(searchChart[pointIdxRadiusSearch[j]]);
             }
         }
     }
 
-    //remove the node that has high density
-    for (int j = 0; j <fliterset.size() ; ++j) {
-        fliterset[j]->second->Visted=true;
-    }
-    float penalty=5*pow(count,5)*stepsize_;
     float dis=map->distance(p,goalNode);
-    float compensate=-(p->gn)/5.0;
-    if(count<=2) return p->gn+dis+compensate;
-    else return p->gn+penalty+dis;
+    int clearDir=0;
+    if(count>3){
+        //calulate the mass point
+        Vector2f massPoint(0.0,0.0);
+        for (int k = 0; k <pointIdxRadiusSearch.size() ; ++k) {
+            massPoint+=Vector2f(sampleTreeCloud->at(pointIdxRadiusSearch[k]).x,sampleTreeCloud->at(pointIdxRadiusSearch[k]).y);
+        }
+        massPoint=massPoint/pointIdxRadiusSearch.size();
+        bool clearDirection=false;
+        //if the sample point in the circle is aggregated in half part,we caculate 6 directions that maight be clear
+        //if so, we dont punish current point
+        //else we punish current point and make it not grow any more
+        //this situation may occur in narrow passenage and very complicated area
+        //this trick may accelerates 10 times
+        float theta=atan((-massPoint.y()+p->pw[1])/(-massPoint.x()+p->pw[0]));
+        for (int l = -9; l <9 ; ++l) {
+            Vector2f testPoint=Vector2f(p->pw[0]+0.5*stepsize_*cos(theta+l*M_PI/18.0),p->pw[1]+0.5*stepsize_*sin(theta+l*M_PI/18.0));
+            auto tp=make_shared<Node>(testPoint);
+            if(map->ValidConnect(p,tp)){
+                //sampledPointsWithFn.insert(make_pair(0,tp));
+                clearDirection=true;
+                clearDir++;
+                if(clearDir>2)break;
+            }
+        }
+
+        //remove the node that has high density in obstacle area
+        if(!clearDirection){
+            for (int j = 0; j <fliterset.size() ; ++j) {
+                fliterset[j]->second->Visted=true;
+            }
+            float penalty=10*pow(count,5)*stepsize_;
+            return p->gn+penalty+dis;
+        }else{
+            if(clearDir>2){
+                float compensate=-(p->gn)/10.0;
+                return p->gn+dis+compensate;
+            }
+            return p->gn+dis;
+        }
+    }
+    return p->gn+dis;
+
+
 }
+
+//sample a line toward goal(may not link the whole path but most collision free) and at most 10 rand point in the ellipse of goal and start
+multimap<float,Node::Ptr> HybirdRRTstarKdtree::ellipse_sample_star(Node::Ptr curr,Node::Ptr goal,float min_step){
+    multimap<float,Node::Ptr> OpenSet;
+    float c=map->distance(curr,goal)/2.0;
+    float a=5.0*c;
+    float b=sqrt(a*a-c*c);
+    float rot=atan((curr->pw[1]-goal->pw[1])/(curr->pw[0]-goal->pw[0]));
+    Eigen::Matrix3f R=Eigen::AngleAxisf(rot,Eigen::Vector3f::UnitZ()).toRotationMatrix();
+    std::uniform_real_distribution<double > dist{0,2*M_PI};
+    std::uniform_real_distribution<double > distribution{-1.0,1.0};
+    std::random_device rd;
+    std::default_random_engine rng {rd()};
+
+    float x0=(curr->pw[0]+goal->pw[0])/2.0;
+    float y0=(curr->pw[1]+goal->pw[1])/2.0;
+
+    //sample in a ellipse
+    for (int j = 0; j <500 ; ++j) {
+        float theta=dist(rng);
+        float alpha=distribution(rng);
+        float x=a*cos(theta)*alpha;
+        float y=b*sin(theta)*alpha;
+        if((abs(x-curr->pw[0])+abs(y-curr->pw[1]))<min_step) continue;
+        Vector3f ell=R*Vector3f(x,y,0)+Vector3f(x0,y0,0);
+        float dis=sqrt(pow(x-goal->pw[0],2)+pow(y-goal->pw[1],2));
+        auto node=make_shared<Node>(Vector2f(ell.x(),ell.y()));
+        if(!map->isValid(ell.x(),ell.y())) continue;
+        //low density sample
+        pcl::PointXY p;
+        p.x=ell.x();p.y=ell.y();
+        vector<int> pointIdxRadiusSearch;
+        vector<float> pointRadiusSquaredDistance;
+        float radius =stepsize_/5.0;
+        if(kdtree.radiusSearch (p, radius, pointIdxRadiusSearch, pointRadiusSquaredDistance)>3) continue;
+        OpenSet.insert(make_pair(curr->gn+dis,node));
+        if(OpenSet.size()>10) break;
+    }
+
+//choose a best node toward goal
+    Node::Ptr bestNode;
+    if(map->ValidConnect(curr,goal,bestNode)){
+        float dis=map->distance(curr,bestNode)+((bestNode==goal)?-curr->gn:map->distance(bestNode,goal));
+        OpenSet.insert(make_pair(curr->gn+dis,bestNode));
+    }
+    return OpenSet;
+}
+
 Node::Ptr HybirdRRTstarKdtree::sampleWithLowDensity(Node::Ptr curr, Node::Ptr goal, float length) {
     kdtree.setInputCloud(sampleTreeCloud);
     std::uniform_real_distribution<double> dist {0, 2 * M_PI};

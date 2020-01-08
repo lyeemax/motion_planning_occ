@@ -231,7 +231,7 @@ Node::Ptr OccMap::ellipse_sample(Node::Ptr n1,Node::Ptr n2,float pathlength){
 multimap<float,Node::Ptr> OccMap::ellipse_sample_star(Node::Ptr curr,Node::Ptr goal,float min_step){
     multimap<float,Node::Ptr> OpenSet;
     float c=distance(curr,goal)/2.0;
-    float a=2.0*c;
+    float a=5.0*c;
     float b=sqrt(a*a-c*c);
     float rot=atan((curr->pw[1]-goal->pw[1])/(curr->pw[0]-goal->pw[0]));
     Eigen::Matrix3f R=Eigen::AngleAxisf(rot,Eigen::Vector3f::UnitZ()).toRotationMatrix();
@@ -254,6 +254,7 @@ multimap<float,Node::Ptr> OccMap::ellipse_sample_star(Node::Ptr curr,Node::Ptr g
         float dis=sqrt(pow(x-goal->pw[0],2)+pow(y-goal->pw[1],2));
         auto node=make_shared<Node>(Vector2f(ell.x(),ell.y()));
         if(!isValid(ell.x(),ell.y())) continue;
+        //low density sample
         OpenSet.insert(make_pair(curr->gn+dis,node));
         if(OpenSet.size()>50) break;
     }

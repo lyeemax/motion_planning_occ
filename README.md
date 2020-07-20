@@ -1,4 +1,8 @@
 # motion_planning_occ
-Currently,I provide A*、Dijistra、RRT、RRT* and Hybrid RRT*.I will give kinodynamic pattern later.
-</br>I recommend A* for small scene and Hybrid RRT* for large scene.
-</br>All algorithm is designed to be easy and effcient,you need set the occupancy gird map and goal point,then use Solve() method.
+![image](https://github.com/lyeemax/motion_planning_occ/blob/master/rrt.gif)
+![image](https://github.com/lyeemax/motion_planning_occ/blob/master/astar.gif)
+</br>Currently,I provide A*、Dijistra、RRT、RRT* and Hybrid RRT*,use roslaunch to run it.
+</br>
+</br>Hybrid RRT* is an algorithm combined both graph-search and random tree method,I gave this simple impl to demonstrate how it works.However it could be use as an front-end searching algorithm in more complicated situation;
+</br>
+</br>FEEL FREE TO USE IT!

@@ -1,0 +1,5 @@
+<launch>
+ <node pkg="motion_plan_occ" type="astar" name="motion_planning_rrt" output="screen" />
+ <node launch-prefix="nice" pkg="rviz" type="rviz" name="rviz" args="-d $(find motion_plan_occ)/rviz_config/astar.rviz" />
+<node pkg="map_server" name="map_server" type="map_server" args="$(find motion_plan_occ)/map/willow.yaml" />
+</launch>
